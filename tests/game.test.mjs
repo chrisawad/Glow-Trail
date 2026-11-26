@@ -71,7 +71,7 @@ async function openSharedPuzzle(page, link, id) {
 
 async function dismissInstall(page) {
   const dialog = page.getByRole('dialog', { name: 'Install Glow Trail', exact: true })
-  await dialog.getByRole('button', { name: 'Back to puzzle' }).click()
+  await dialog.getByRole('button', { name: 'Not now', exact: true }).click()
   await dialog.waitFor({ state: 'hidden' })
 }
 
@@ -618,6 +618,49 @@ test('the eight fixed puzzles lead into replayable, shareable random puzzles, in
   assert.deepEqual(await dots(page), ninthDots)
 })
 
+test('iPhone and desktop-mode iPad offer Safari installation steps and a copyable game link', async t => {
+  for (const profile of [
+    { platform: 'iPhone', userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 Version/18.6 Mobile/15E148 Safari/604.1', viewport: { width: 390, height: 844 } },
+    { platform: 'MacIntel', userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15) AppleWebKit/605.1.15 Version/18.6 Safari/605.1.15', viewport: { width: 1024, height: 768 } },
+  ]) {
+    const context = await browser.newContext({ userAgent: profile.userAgent, viewport: profile.viewport, isMobile: true, hasTouch: true })
+    t.after(() => context.close())
+    // Supply Safari's platform and install capabilities to the Chromium harness.
+    await context.addInitScript(platform => {
+      Object.defineProperty(navigator, 'platform', { value: platform })
+      Object.defineProperty(navigator, 'maxTouchPoints', { value: 5 })
+      Object.defineProperty(navigator, 'install', { value: undefined })
+      window.addEventListener('beforeinstallprompt', event => {
+        event.preventDefault()
+        event.stopImmediatePropagation()
+      }, true)
+    }, profile.platform)
+    await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: new URL(url).origin })
+    const page = await context.newPage()
+    await page.goto(url)
+    const dialog = page.getByRole('dialog', { name: 'Install Glow Trail' })
+    await dialog.waitFor()
+    assert.equal(await dialog.getByRole('button', { name: 'Install app' }).count(), 0)
+    const steps = await dialog.getByRole('listitem').allTextContents()
+    assert.match(steps.join(' '), /Safari.*Share.*Add to Home Screen.*Open as Web App.*Add/i)
+
+    const copy = dialog.getByRole('button', { name: 'Copy link', exact: true })
+    assert.equal(await copy.isVisible(), false)
+    const summary = dialog.locator('summary', { hasText: 'Copy the game link' })
+    await summary.focus()
+    await page.keyboard.press('Enter')
+    const gameLink = dialog.getByRole('textbox', { name: 'Game link' })
+    assert.equal(await gameLink.getAttribute('readonly'), '')
+    assert.equal(await gameLink.inputValue(), 'https://glowtrail.chrisawad.com/')
+    await copy.click()
+    await dialog.getByText('Link copied.', { exact: true }).waitFor()
+    assert.equal(await page.evaluate(() => navigator.clipboard.readText()), 'https://glowtrail.chrisawad.com/')
+    await dismissInstall(page)
+    await clickCell(page, 33)
+    await count(page, 2)
+  }
+})
+
 test('the install button uses browser consent, supports cancellation, and offers again after uninstall', async t => {
   const { page } = await game(t, { installed: false })
   await page.evaluate(() => {
@@ -632,9 +675,19 @@ test('the install button uses browser consent, supports cancellation, and offers
   })
   const offer = page.getByRole('button', { name: 'Install Glow Trail' })
   const installDialog = page.getByRole('dialog', { name: 'Install Glow Trail' })
-  await installDialog.waitFor()
+  const install = installDialog.getByRole('button', { name: 'Install app', exact: true })
+  await install.waitFor()
+  assert.equal(await installDialog.locator('details, ol').count(), 0)
   assert.equal(await page.evaluate(() => window.installCalls), 0)
-  await installDialog.getByRole('button', { name: 'Install app', exact: true }).click()
+  for (const viewport of [{ width: 390, height: 844 }, { width: 568, height: 320 }]) {
+    await page.setViewportSize(viewport)
+    const primary = await install.boundingBox()
+    const later = await installDialog.getByRole('button', { name: 'Not now', exact: true }).boundingBox()
+    assert.ok(later.y >= primary.y + primary.height - 1)
+    assert.ok(Math.abs(later.width - primary.width) < 2)
+    assert.ok(primary.y >= 0 && later.y + later.height <= viewport.height + 1)
+  }
+  await install.click()
   await page.getByText('Installation canceled. You can keep playing here.').waitFor()
   await page.evaluate(() => window.offerInstallForTest('accepted'))
   await page.getByRole('button', { name: 'Install app', exact: true }).click()

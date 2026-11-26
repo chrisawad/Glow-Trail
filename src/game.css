@@ -138,10 +138,41 @@ dialog::backdrop { background: #120f21bf; backdrop-filter: blur(4px); overflow: 
 .dialog-status:empty { display: none; }
 .field-label { display: block; margin-bottom: 4px; font-weight: 800; }
 .share-input { width: 100%; font: inherit; color: var(--cream); border-radius: 10px; border: 1px solid #756382; background: #282239; padding: 9px; margin-bottom: 13px; }
-.wide { width: 100%; }
-.install-details { margin: 15px 0; padding: 12px; background: #30283f; border-radius: 11px; }
-.install-details summary { cursor: pointer; font-weight: 800; }
-.install-details p { color: var(--muted); margin-top: 8px; }
+.install-dialog {
+  inset: 0; margin: auto; width: min(25rem, calc(100% - 1.5rem)); height: fit-content;
+  max-height: calc(100dvh - 1.5rem); overflow: auto; padding: clamp(1.25rem, 4vw, 2rem);
+  border: 1px solid #76638a; border-radius: 1.45rem; color: #fff8ef;
+  background: radial-gradient(ellipse at 10% 0%, #493855, transparent 60%), #39314c;
+}
+.install-dialog::backdrop { background: #171127bf; backdrop-filter: none; }
+.install-emblem {
+  display: inline-grid; place-items: center; width: 3.15rem; height: 3.15rem;
+  border: 1px solid #947297; border-radius: 1rem; background: #574269;
+}
+.install-emblem svg { width: 2.4rem; height: 2.4rem; }
+.install-heading h1 { margin: .85rem 0 .45rem; font: 550 1.95rem/1.15 var(--heading); letter-spacing: -.025em; }
+#install-description { color: #e2d6e5; line-height: 1.5; }
+.install-action, .install-dismiss { width: 100%; min-height: 44px; }
+.install-action { margin-top: 1.5rem; }
+.install-action svg { color: inherit; }
+.install-dismiss { margin-top: .85rem; background: #453953; border-color: #71617d; }
+.install-steps { border-left: 2px solid #bd99db; margin: 1rem 0; padding: .1rem 0 .1rem .85rem; line-height: 1.5; }
+ol.install-steps { padding-left: 1.85rem; }
+.install-steps li + li { margin-top: .45rem; }
+.install-steps a, .install-copy summary { color: #eadcf2; text-decoration: underline; text-underline-offset: .14em; }
+.install-copy summary { cursor: pointer; font-weight: 800; }
+.install-copy summary:focus-visible { outline: 2px solid #ffd585; outline-offset: 3px; }
+.install-link-row { display: flex; flex-wrap: wrap; align-items: stretch; gap: .5rem; margin-top: .65rem; }
+.install-link-row .share-input { flex: 1 1 10rem; min-width: 0; margin: 0; }
+.install-link-row .action { flex: 0 0 auto; }
+@media (orientation: landscape) and (max-height: 440px) {
+  .install-dialog { width: min(34rem, calc(100% - 1.5rem)); padding: 1rem 1.25rem; }
+  .install-heading { display: flex; align-items: center; gap: .75rem; margin-bottom: .5rem; }
+  .install-heading h1 { margin: 0; font-size: 1.6rem; }
+  .install-emblem { width: 2.5rem; height: 2.5rem; border-radius: .75rem; }
+  .install-emblem svg { width: 2rem; height: 2rem; }
+  .install-action, .install-dismiss, .install-steps { margin-top: .65rem; }
+}
 .setting-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 16px 0; border-bottom: 1px solid var(--line); }
 .setting-row strong { color: #aee7ce; }
 .board-frame[data-trail=Meadow] { --trail-start: #7bcf49; --trail-middle: #32b246; --trail-end: #06894b; }

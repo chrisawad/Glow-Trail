@@ -209,7 +209,8 @@ export default function App() {
       </div>
     </main>
     <canvas ref={celebration.canvas} className="win-confetti" aria-hidden="true"/>
-    <dialog ref={dialog} className={modal === 'reset' ? 'reset-dialog' : undefined} aria-labelledby="dialog-title" aria-describedby={modal === 'reset' ? 'reset-description' : undefined}
+    <dialog ref={dialog} className={modal ? modal + '-dialog' : undefined} aria-labelledby="dialog-title"
+      aria-describedby={modal === 'reset' ? 'reset-description' : modal === 'install' ? 'install-description' : undefined}
       onCancel={event => { event.preventDefault(); if (!pwa.applying) close() }}>
       {modal === 'help' && <>
         <div className="dialog-head"><h1 id="dialog-title">How to play</h1><button className="close-button" aria-label="Close How to play" onClick={close} autoFocus><Icon name="close"/></button></div>

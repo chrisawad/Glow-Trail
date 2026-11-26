@@ -231,7 +231,7 @@ export function usePwa() {
     } catch (error) {
       setInstallMessage(error instanceof DOMException && error.name === 'AbortError'
         ? 'Installation canceled. You can keep playing here.'
-        : 'You can install from your browser menu using the steps below.')
+        : 'The installer could not open. Try again or use your browser’s install menu.')
     }
     finally { setBusy(false) }
   }

@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { Icon } from './Icons'
+import { Icon, Mark } from './Icons'
 import type { usePwa } from './usePwa'
 import type { Puzzle } from './puzzles'
 
@@ -10,14 +10,21 @@ function Title({ title, close }: {title: string; close: () => void}) {
   return <div className="dialog-head"><h1 id="dialog-title">{title}</h1><button className="close-button" onClick={close} aria-label={'Close ' + title}><Icon name="close"/></button></div>
 }
 
-export function Share({puzzle, close}: {puzzle: Puzzle; close: () => void}) {
-  const link = 'https://glowtrail.chrisawad.com/#puzzle=' + encodeURIComponent(puzzle.id)
+const gameUrl = 'https://glowtrail.chrisawad.com/'
+
+function useLinkCopy(link: string) {
   const input = useRef<HTMLInputElement>(null)
   const [message, setMessage] = useState('')
   async function copy() {
     try { await navigator.clipboard.writeText(link); setMessage('Link copied.') }
     catch { input.current?.focus(); input.current?.select(); setMessage('Use your device’s Copy command to copy the selected link.') }
   }
+  return {input, message, setMessage, copy}
+}
+
+export function Share({puzzle, close}: {puzzle: Puzzle; close: () => void}) {
+  const link = gameUrl + '#puzzle=' + encodeURIComponent(puzzle.id)
+  const {input, message, setMessage, copy} = useLinkCopy(link)
   async function share() {
     try { await navigator.share({title: 'Glow Trail', text: 'Play ' + puzzle.name + ' on Glow Trail.', url: link}) }
     catch (error) { if (!(error instanceof DOMException && error.name === 'AbortError')) setMessage('Use Copy link to share this puzzle.') }
@@ -31,19 +38,46 @@ export function Share({puzzle, close}: {puzzle: Puzzle; close: () => void}) {
   </>
 }
 
+function InstallSteps() {
+  const appleMobile = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+  if (appleMobile) return <ol className="install-steps">
+    <li>Open {window.isSecureContext ? 'Glow Trail' : <a href={gameUrl}>Glow Trail</a>} in Safari and tap <strong>Share</strong>.</li>
+    <li>Choose <strong>Add to Home Screen</strong>. Turn on <strong>Open as Web App</strong> if offered, then tap <strong>Add</strong>.</li>
+  </ol>
+  if (!window.isSecureContext) return <p className="install-steps">To install from this preview, open <a href={gameUrl}>Glow Trail over HTTPS</a>.</p>
+  if (/Android/i.test(navigator.userAgent)) return <ol className="install-steps">
+    <li>Open Glow Trail in Chrome and tap the <strong>⋮ menu</strong>.</li>
+    <li>Choose <strong>Install app</strong> or <strong>Add to Home screen</strong> and follow the prompt.</li>
+  </ol>
+  if (/Macintosh/.test(navigator.userAgent) && /Version\/.*Safari\//.test(navigator.userAgent)) return <p className="install-steps">In Safari, choose <strong>File → Add to Dock</strong>, then select <strong>Add</strong>.</p>
+  return <p className="install-steps">Open Glow Trail in Chrome or Edge and choose the <strong>install option</strong> in the address bar or browser menu.</p>
+}
+
 export function Install({pwa, close}: {pwa: Pwa; close: () => void}) {
-  const apple = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
-  const android = /Android/i.test(navigator.userAgent)
-  return <><Title title="Install Glow Trail" close={close}/>
-    {pwa.installed ? <p className="dialog-copy">Glow Trail is installed on this device.</p> : !window.isSecureContext ? <p className="dialog-copy">You can play at this address. To install Glow Trail, open it over HTTPS or use localhost on the computer running the preview.</p> : <>
-      <p className="dialog-copy">Add Glow Trail to your home screen and play your saved puzzles offline.</p>
-      {(pwa.canInstall || pwa.busy) && <button className="action main-action wide" disabled={pwa.busy} onClick={pwa.install}><Icon name="install"/>{pwa.busy ? 'Installing…' : 'Install app'}</button>}
-      <details className="install-details" open={!pwa.canInstall && !pwa.busy}><summary>Install from your browser</summary>
-        <p>{apple ? 'In Safari, tap Share, choose Add to Home Screen, then tap Add. Enable Open as Web App if offered.' : android ? 'Open this page in Chrome. In the browser menu, choose Install app or Add to Home screen, then confirm.' : 'In Chrome or Edge, use the install icon in the address bar or the install option in the browser menu. In Safari on Mac, choose File → Add to Dock.'}</p>
-      </details>
+  const {input, message, copy} = useLinkCopy(gameUrl)
+  return <>
+    <div className="install-heading">
+      <span className="install-emblem" aria-hidden="true"><Mark/></span>
+      <h1 id="dialog-title">Install Glow Trail</h1>
+    </div>
+    <p id="install-description">{pwa.installed ? 'Glow Trail is installed on this device.' : 'Keep Glow Trail on your home screen and play offline after your first visit.'}</p>
+    {!pwa.installed && <>
+      {pwa.canInstall || pwa.busy
+        ? <button autoFocus className="action main-action install-action" aria-disabled={pwa.busy} onClick={pwa.install}><Icon name="install"/>{pwa.busy ? 'Installing…' : 'Install app'}</button>
+        : <>
+          <InstallSteps/>
+          <details className="install-copy">
+            <summary>Copy the game link</summary>
+            <div className="install-link-row">
+              <input ref={input} className="share-input" aria-label="Game link" readOnly value={gameUrl} onFocus={e => e.currentTarget.select()}/>
+              <button className="action" onClick={copy}>Copy link</button>
+            </div>
+            <p className="dialog-status" role="status">{message}</p>
+          </details>
+        </>}
       <p className="dialog-status" role="status">{pwa.installMessage}</p>
     </>}
-    <button className="action wide" onClick={close}>Back to puzzle</button>
+    <button className="action install-dismiss" onClick={close}>{pwa.installed ? 'Back to puzzle' : 'Not now'}</button>
   </>
 }
 
