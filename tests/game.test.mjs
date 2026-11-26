@@ -75,6 +75,17 @@ async function dismissInstall(page) {
   await dialog.waitFor({ state: 'hidden' })
 }
 
+async function expectManualInstall(page) {
+  const button = page.getByRole('navigation', { name: 'Game controls' }).getByRole('button', { name: 'Install Glow Trail' })
+  await button.waitFor({ timeout: 6000 })
+  const dialog = page.getByRole('dialog', { name: 'Install Glow Trail', exact: true })
+  // Allow the automatic-visit checks (including their bounded lookup grace period) to finish.
+  await assert.rejects(dialog.waitFor({ timeout: 1800 }), { name: 'TimeoutError' })
+  await button.click({ timeout: 6000 })
+  await dialog.waitFor()
+  assert.equal(await dialog.locator('#install-description').innerText(), 'Keep Glow Trail on your home screen and play offline after your first visit.')
+}
+
 async function point(page, cell) {
   const board = page.locator('.trail-board')
   await board.scrollIntoViewIfNeeded()
@@ -388,10 +399,18 @@ test('Chromium installs the app and opens it in a standalone window', async t =>
   await cdp.send('PWA.uninstall', app)
 })
 
-test('uninstalled visitors see one automatic install offer per visit and can reopen it from the toolbar', async t => {
-  const { page } = await game(t, { installed: false })
+test('new visits offer installation once, while switching focus or opening game controls allows manual reopening', async t => {
+  const { page, context } = await game(t, { installed: false })
   const offer = page.getByRole('navigation', { name: 'Game controls' }).getByRole('button', { name: 'Install Glow Trail' })
   const dialog = page.getByRole('dialog', { name: 'Install Glow Trail', exact: true })
+  await dialog.waitFor()
+  // Each navigation gets its own offer regardless of earlier offers in this profile.
+  await page.evaluate(() => localStorage.setItem('glow-trail.install-dialog-shown', '1'))
+  const other = await context.newPage()
+  await other.goto(url + '#from=games-dashboard')
+  await dismissInstall(other)
+  await other.close()
+  await page.bringToFront()
   await dismissInstall(page)
   await page.evaluate(() => window.dispatchEvent(new Event('focus')))
   await clickCell(page, 33)
@@ -407,17 +426,44 @@ test('uninstalled visitors see one automatic install offer per visit and can reo
     delete document.hidden
     document.dispatchEvent(new Event('visibilitychange'))
   })
-  await dismissInstall(page)
   await page.getByRole('button', { name: 'Settings', exact: true }).click()
+  await page.getByRole('button', { name: 'Close Settings' }).click()
+  await page.getByRole('button', { name: 'Share puzzle' }).click()
+  await page.keyboard.press('Escape')
+  await expectManualInstall(page)
+  await dismissInstall(page)
+  // A real Back navigation offers again whether the browser reloads or restores the document.
+  await page.goto('about:blank')
+  await page.goBack()
+  await dismissInstall(page)
+  // Exercise the bfcache restore path even when Chromium chose to reload on Back.
   await page.evaluate(() => {
     window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true }))
     window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }))
   })
-  await page.getByRole('button', { name: 'Close Settings' }).click()
   await dismissInstall(page)
   await clickCell(page, 32)
   await count(page, 3)
   assert.equal(await dialog.isVisible(), false)
+})
+
+test('blocked storage permits one offer per visit and manual reopening', async t => {
+  const context = await browser.newContext()
+  t.after(() => context.close())
+  await context.addInitScript(() => {
+    const blocked = () => { throw new DOMException('Storage blocked', 'SecurityError') }
+    Object.defineProperty(window, 'localStorage', { get: blocked })
+    Object.defineProperty(window, 'sessionStorage', { get: blocked })
+  })
+  const page = await context.newPage()
+  await page.goto(url)
+  await dismissInstall(page)
+  await expectManualInstall(page)
+  await dismissInstall(page)
+  await page.reload()
+  await dismissInstall(page)
+  await clickCell(page, 33)
+  await count(page, 2)
 })
 
 test('sharing opens the chosen board and settings persist', async t => {
@@ -642,7 +688,10 @@ test('iPhone and desktop-mode iPad offer Safari installation steps and a copyabl
     await dialog.waitFor()
     assert.equal(await dialog.getByRole('button', { name: 'Install app' }).count(), 0)
     const steps = await dialog.getByRole('listitem').allTextContents()
-    assert.match(steps.join(' '), /Safari.*Share.*Add to Home Screen.*Open as Web App.*Add/i)
+    assert.deepEqual(steps, [
+      'Open Glow Trail in Safari and tap Share.',
+      'Choose Add to Home Screen. Turn on Open as Web App if offered, then tap Add.',
+    ])
 
     const copy = dialog.getByRole('button', { name: 'Copy link', exact: true })
     assert.equal(await copy.isVisible(), false)
@@ -670,6 +719,8 @@ async function embeddedGame(t, { userAgent, listing, updates = 'pending', entry 
   await context.addInitScript(({ listing, updates }) => {
     localStorage.setItem('glow-trail.installed', 'listed')
     sessionStorage.setItem('glow-trail.installed', '1')
+    localStorage.setItem('queens.install-offer-shown', '1')
+    localStorage.setItem('install-dismissed', '1')
     // The enclosing app owns this display mode. It says nothing about Glow Trail.
     const matchMedia = window.matchMedia.bind(window)
     window.matchMedia = query => {
@@ -692,7 +743,7 @@ async function embeddedGame(t, { userAgent, listing, updates = 'pending', entry 
       own: async () => ownListing(),
     }
     window.testListing = new Promise(resolve => { window.confirmGlowTrail = () => resolve(ownListing()) })
-    Object.defineProperty(navigator, 'getInstalledRelatedApps', { value: lookups[listing] })
+    Object.defineProperty(navigator, 'getInstalledRelatedApps', { configurable: true, value: lookups[listing] })
     Object.defineProperty(navigator.serviceWorker, 'getRegistration', { value: updates === 'denied' ? denied : () => never })
     Object.defineProperty(navigator.serviceWorker, 'ready', { value: never })
   }, { listing, updates })
@@ -709,7 +760,10 @@ test('Dashboard install help survives the redirect, inherited display mode, stal
     userAgent: mobileSafari, listing: 'pending', entry: 'https://glowtrail.chrisawad.com/#from=games-dashboard&puzzle=clover-bend',
   })
   await dialog.waitFor({ timeout: 6000 })
-  assert.match((await dialog.getByRole('listitem').allInnerTexts()).join(' '), /Safari.*Share.*Add to Home Screen.*Add/i)
+  assert.deepEqual(await dialog.getByRole('listitem').allInnerTexts(), [
+    'Use Open in Safari in this window’s menu, or copy the game link below and open it in Safari. Tap Share.',
+    'Choose Add to Home Screen. Turn on Open as Web App if offered, then tap Add.',
+  ])
   assert.equal(await dialog.getByRole('textbox', { name: 'Game link' }).inputValue(), 'https://glowtrail.chrisawad.com/')
   await dismissInstall(page)
   await page.getByRole('heading', { name: 'Clover Bend' }).waitFor()
@@ -718,7 +772,15 @@ test('Dashboard install help survives the redirect, inherited display mode, stal
   await page.keyboard.press('Escape')
   await page.getByRole('button', { name: 'Install Glow Trail' }).click()
   await dismissInstall(page)
-  await page.reload()
+  await page.goto('about:blank')
+  await page.goto(url + '#from=games-dashboard')
+  await dismissInstall(page)
+})
+
+test('late installation confirmation withdraws an automatic offer and the toolbar button', async t => {
+  const { page, dialog } = await embeddedGame(t, {
+    userAgent: mobileSafari, listing: 'pending', entry: url + '#from=games-dashboard',
+  })
   await dialog.waitFor({ timeout: 6000 })
   // A late positive result for this specific game must withdraw the automatic offer.
   await page.evaluate(() => window.confirmGlowTrail())
@@ -749,6 +811,13 @@ test('Dashboard launches honor current installation evidence and genuine browser
   await known.page.getByText('Installed', { exact: true }).waitFor()
   assert.equal(await known.dialog.isVisible(), false)
   assert.equal(await known.page.getByRole('button', { name: 'Install Glow Trail' }).count(), 0)
+  // A confirmed installation must not consume an offer that was never displayed.
+  await known.page.getByRole('button', { name: 'Close Settings' }).click()
+  await known.page.evaluate(() => {
+    Object.defineProperty(navigator, 'getInstalledRelatedApps', { value: async () => [] })
+    window.dispatchEvent(new Event('focus'))
+  })
+  await dismissInstall(known.page)
 
   const { page, dialog } = await embeddedGame(t, { userAgent: androidWebView, listing: 'absent', entry })
   await dialog.waitFor({ timeout: 6000 })
@@ -761,7 +830,10 @@ test('Dashboard launches honor current installation evidence and genuine browser
   assert.equal(await page.evaluate(() => window.nativeInstallRequests), 0)
   const native = dialog.getByRole('button', { name: 'Install app', exact: true })
   await native.waitFor({ timeout: 6000 })
-  assert.match((await dialog.getByRole('listitem').allInnerTexts()).join(' '), /Chrome.*Install app/i)
+  assert.deepEqual(await dialog.getByRole('listitem').allInnerTexts(), [
+    'Choose Open in Chrome in this window’s menu, or copy the game link below and open it in Chrome.',
+    'Tap Chrome’s ⋮ menu, choose Install app or Add to Home screen, and follow the prompt.',
+  ])
   assert.equal(await dialog.getByRole('textbox', { name: 'Game link' }).inputValue(), 'https://glowtrail.chrisawad.com/')
   await native.click()
   assert.equal(await page.evaluate(() => window.nativeInstallRequests), 1)
@@ -861,6 +933,7 @@ test('an HTTP LAN visit can detect, defer and apply a new build while preserving
   await resumedCheck
   await updateDialog.waitFor()
   await updateDialog.getByRole('button', { name: 'Later' }).click()
+  await dismissInstall(page)
   // A cold visit can receive the previous HTML from a browser cache.
   await page.reload()
   const firstDialog = page.getByRole('dialog')
@@ -933,6 +1006,7 @@ test('a waiting update prompts once per visit and can be applied without losing 
     window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }))
   })
   await later.click()
+  await dismissInstall(page)
   await page.getByRole('button', { name: 'Settings' }).click()
   await page.getByRole('button', { name: 'Close Settings' }).click()
   assert.equal(await updateDialog.isVisible(), false)
@@ -941,11 +1015,13 @@ test('a waiting update prompts once per visit and can be applied without losing 
     window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }))
   })
   await later.click()
+  await dismissInstall(page)
   await page.reload()
   const firstDialog = page.getByRole('dialog')
   await firstDialog.waitFor()
   assert.equal(await firstDialog.getByRole('heading').innerText(), 'Game update ready')
   await later.click()
+  await dismissInstall(page)
   await count(page, 3)
   await page.getByRole('button', { name: 'Settings' }).click()
   await page.getByRole('button', { name: 'Update available' }).click()

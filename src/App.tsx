@@ -98,7 +98,6 @@ export default function App() {
     if (modal !== 'install') automaticInstall.current = false
     if (modal === 'update') {
       offeredUpdateVisit.current = pwa.visit
-      if (!embeddedLaunch) offeredInstallVisit.current = pwa.visit
       return
     }
     if (modal === 'install') {
@@ -107,18 +106,19 @@ export default function App() {
         setModal(null)
         return
       }
-      offeredInstallVisit.current = pwa.visit
+      offeredInstallVisit.current = pwa.installVisit
     }
     if (modal && !(modal === 'install' && automaticInstall.current && !pwa.busy && !embeddedLaunch)) return
-    const offerHelp = !modal && pwa.offerInstall && offeredInstallVisit.current !== pwa.visit
-    if (offerHelp && (embeddedLaunch || (pwa.checkedForUpdate && !pwa.update))) {
+    const offerHelp = !modal && pwa.offerInstall && offeredInstallVisit.current !== pwa.installVisit
+    const offerUpdate = pwa.update && offeredUpdateVisit.current !== pwa.visit
+    if (offerHelp && (embeddedLaunch || (pwa.checkedForUpdate && !offerUpdate))) {
       automaticInstall.current = true
       setModal('install')
-    } else if (pwa.update && offeredUpdateVisit.current !== pwa.visit) {
+    } else if (offerUpdate) {
       // For embedded players, let their installation check finish (or time out) first.
       if (!embeddedLaunch || pwa.offerInstall || pwa.installed) setModal('update')
     }
-  }, [pwa.update, pwa.checkedForUpdate, pwa.offerInstall, pwa.installed, pwa.busy, pwa.visit, modal])
+  }, [pwa.update, pwa.checkedForUpdate, pwa.offerInstall, pwa.installed, pwa.busy, pwa.visit, pwa.installVisit, modal])
   const close = () => {
     dialog.current?.close()
     setModal(null)

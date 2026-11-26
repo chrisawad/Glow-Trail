@@ -32,6 +32,7 @@ function checkPreviewVersion() {
 }
 export function usePwa() {
   const [visit, setVisit] = useState(0)
+  const [installVisit, setInstallVisit] = useState(0)
   const [installCheck, setInstallCheck] = useState({visit: -1, listed: false})
   const [installedHere, setInstalledHere] = useState(false)
   const [graceExpiredVisit, setGraceExpiredVisit] = useState(-1)
@@ -66,13 +67,19 @@ export function usePwa() {
       if (document.hidden) leave()
       else resume()
     }
+    function pageShown(event: PageTransitionEvent) {
+      // Fresh navigations mount a new game. Back/Forward can restore this same document.
+      // A share sheet or a switch between tabs only changes visibility.
+      if (event.persisted) setInstallVisit(previous => previous + 1)
+      resume()
+    }
     document.addEventListener('visibilitychange', visibilityChanged)
     window.addEventListener('pagehide', leave)
-    window.addEventListener('pageshow', resume)
+    window.addEventListener('pageshow', pageShown)
     return () => {
       document.removeEventListener('visibilitychange', visibilityChanged)
       window.removeEventListener('pagehide', leave)
-      window.removeEventListener('pageshow', resume)
+      window.removeEventListener('pageshow', pageShown)
     }
   }, [])
 
@@ -251,6 +258,6 @@ export function usePwa() {
     installed, offerInstall: !installed && (installCheck.visit === visit || graceExpiredVisit === visit),
     checkedForUpdate: updateCheckedVisit === visit || graceExpiredVisit === visit,
     install, busy, canInstall: !installed && isSecureContext && !!(installPrompt || nav.install), installMessage,
-    update, visit, applying, applyUpdate, checkForUpdates, updateMessage,
+    update, visit, installVisit, applying, applyUpdate, checkForUpdates, updateMessage,
   }
 }
