@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
+import { launchPuzzle, replaceGameUrl } from './launchContext'
 import { PUZZLES, hint, move, type Puzzle } from './puzzles'
 import { fixedIds, isGeneratedId, puzzleById } from './puzzleBook'
 
@@ -43,7 +44,7 @@ function storedIds(): string[] {
 function loadShelf(): Shelf {
   const data = read(key)
   const book = [...new Set([...fixedIds, ...storedIds()])]
-  const shared = new URL(location.href).searchParams.get('puzzle')
+  const shared = launchPuzzle
   if (isGeneratedId(shared) && !book.includes(shared)) book.push(shared)
   const lastActive = typeof data?.active === 'string' && book.includes(data.active) ? data.active : book[0]
   const active = shared && book.includes(shared) ? shared : lastActive
@@ -90,7 +91,7 @@ export function useGame(paused: boolean, onWin: () => void) {
 
   // Opening a shared puzzle adds it to the book even before the first move.
   useEffect(() => {
-    if (new URL(location.href).searchParams.get('puzzle') === live.current.active) save(live.current)
+    if (launchPuzzle === live.current.active) save(live.current)
   }, [])
 
   const stopClock = useCallback(() => {
@@ -141,7 +142,7 @@ export function useGame(paused: boolean, onWin: () => void) {
     const url = new URL(location.href)
     if (url.searchParams.has('puzzle')) {
       url.searchParams.set('puzzle', next.id)
-      history.replaceState(history.state, '', url)
+      replaceGameUrl(url)
     }
     const current = live.current
     const book = current.book.includes(next.id) ? current.book : [...current.book, next.id]

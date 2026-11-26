@@ -6,6 +6,7 @@ import { nextPuzzle, puzzleById } from './puzzleBook'
 import { formatTime, useGame } from './useGame'
 import { useCelebration } from './useCelebration'
 import { usePwa } from './usePwa'
+import { embeddedLaunch } from './launchContext'
 import { Install, Settings, Share, Update, trailColors, type BoardSide, type TrailColor, type Panel } from './GameDialogs'
 
 function NightSky() {
@@ -97,23 +98,25 @@ export default function App() {
     if (modal !== 'install') automaticInstall.current = false
     if (modal === 'update') {
       offeredUpdateVisit.current = pwa.visit
-      offeredInstallVisit.current = pwa.visit
+      if (!embeddedLaunch) offeredInstallVisit.current = pwa.visit
       return
     }
     if (modal === 'install') {
-      if (automaticInstall.current && pwa.installed && offeredInstallVisit.current !== pwa.visit) {
+      if (automaticInstall.current && pwa.installed) {
         dialog.current?.close()
         setModal(null)
         return
       }
       offeredInstallVisit.current = pwa.visit
     }
-    if (modal && !(modal === 'install' && automaticInstall.current && !pwa.busy)) return
-    if (pwa.update && offeredUpdateVisit.current !== pwa.visit) {
-      setModal('update')
-    } else if (!modal && pwa.checkedForUpdate && pwa.offerInstall && offeredInstallVisit.current !== pwa.visit) {
+    if (modal && !(modal === 'install' && automaticInstall.current && !pwa.busy && !embeddedLaunch)) return
+    const offerHelp = !modal && pwa.offerInstall && offeredInstallVisit.current !== pwa.visit
+    if (offerHelp && (embeddedLaunch || (pwa.checkedForUpdate && !pwa.update))) {
       automaticInstall.current = true
       setModal('install')
+    } else if (pwa.update && offeredUpdateVisit.current !== pwa.visit) {
+      // For embedded players, let their installation check finish (or time out) first.
+      if (!embeddedLaunch || pwa.offerInstall || pwa.installed) setModal('update')
     }
   }, [pwa.update, pwa.checkedForUpdate, pwa.offerInstall, pwa.installed, pwa.busy, pwa.visit, modal])
   const close = () => {
@@ -220,7 +223,10 @@ export default function App() {
       {modal === 'settings' && <Settings pwa={pwa} muted={celebration.muted} toggle={celebration.toggleSound}
         color={color} setColor={chooseColor} boardSide={boardSide} setBoardSide={chooseBoardSide} open={setModal} close={close}/>}
       {modal === 'update' && <Update pwa={pwa} playing={run.started && !won} close={close}/>}
-      {modal === 'install' && <Install pwa={pwa} close={close}/>}
+      {modal === 'install' && <Install pwa={{...pwa, install: () => {
+        automaticInstall.current = false
+        return pwa.install()
+      }}} close={close}/>}
       {modal === 'book' && <>
         <div className="dialog-head"><h1 id="dialog-title">Puzzle book</h1><button aria-label="Close puzzle book" className="close-button" onClick={close} autoFocus><Icon name="close"/></button></div>
         {game.book.length > pageSize && <nav className="book-pages" aria-label="Puzzle book pages">

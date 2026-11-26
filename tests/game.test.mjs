@@ -661,6 +661,112 @@ test('iPhone and desktop-mode iPad offer Safari installation steps and a copyabl
   }
 })
 
+const mobileSafari = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 Version/18.6 Mobile/15E148 Safari/604.1'
+const androidWebView = 'Mozilla/5.0 (Linux; Android 15; Pixel 7 Build/AP3A; wv) AppleWebKit/537.36 Version/4.0 Chrome/136.0.0.0 Mobile Safari/537.36'
+
+async function embeddedGame(t, { userAgent, listing, updates = 'pending', entry = url }) {
+  const context = await browser.newContext({ userAgent, isMobile: true, hasTouch: true, viewport: { width: 390, height: 844 } })
+  t.after(() => context.close())
+  await context.addInitScript(({ listing, updates }) => {
+    localStorage.setItem('glow-trail.installed', 'listed')
+    sessionStorage.setItem('glow-trail.installed', '1')
+    // The enclosing app owns this display mode. It says nothing about Glow Trail.
+    const matchMedia = window.matchMedia.bind(window)
+    window.matchMedia = query => {
+      const media = matchMedia(query)
+      if (query.includes('display-mode: standalone')) Object.defineProperty(media, 'matches', { value: true })
+      return media
+    }
+    Object.defineProperty(navigator, 'standalone', { value: true })
+    Object.defineProperty(navigator, 'install', { value: undefined })
+    window.addEventListener('beforeinstallprompt', event => {
+      if (event.isTrusted) { event.preventDefault(); event.stopImmediatePropagation() }
+    }, true)
+    const never = new Promise(() => {})
+    const denied = () => Promise.reject(new DOMException('Blocked in this browser', 'SecurityError'))
+    const ownListing = () => [{ platform: 'webapp', url: document.querySelector('link[rel=manifest]').href }]
+    const lookups = {
+      pending: () => window.testListing,
+      denied,
+      other: async () => [{ platform: 'webapp', id: new URL('/Games-Dashboard/', location.href).href }],
+      own: async () => ownListing(),
+    }
+    window.testListing = new Promise(resolve => { window.confirmGlowTrail = () => resolve(ownListing()) })
+    Object.defineProperty(navigator, 'getInstalledRelatedApps', { value: lookups[listing] })
+    Object.defineProperty(navigator.serviceWorker, 'getRegistration', { value: updates === 'denied' ? denied : () => never })
+    Object.defineProperty(navigator.serviceWorker, 'ready', { value: never })
+  }, { listing, updates })
+  // Reproduce the public host's redirect with a bare Location header.
+  await context.route('https://glowtrail.chrisawad.com/', request =>
+    request.fulfill({ status: 301, headers: { location: url } }))
+  const page = await context.newPage()
+  await page.goto(entry)
+  return { page, dialog: page.getByRole('dialog', { name: 'Install Glow Trail', exact: true }) }
+}
+
+test('Dashboard install help survives the redirect, inherited display mode, stale flags and hung lookups', async t => {
+  const { page, dialog } = await embeddedGame(t, {
+    userAgent: mobileSafari, listing: 'pending', entry: 'https://glowtrail.chrisawad.com/#from=games-dashboard&puzzle=clover-bend',
+  })
+  await dialog.waitFor({ timeout: 6000 })
+  assert.match((await dialog.getByRole('listitem').allInnerTexts()).join(' '), /Safari.*Share.*Add to Home Screen.*Add/i)
+  assert.equal(await dialog.getByRole('textbox', { name: 'Game link' }).inputValue(), 'https://glowtrail.chrisawad.com/')
+  await dismissInstall(page)
+  await page.getByRole('heading', { name: 'Clover Bend' }).waitFor()
+  await page.getByRole('button', { name: 'Share puzzle' }).click()
+  assert.equal(await page.getByLabel('Puzzle link').inputValue(), 'https://glowtrail.chrisawad.com/#puzzle=clover-bend')
+  await page.keyboard.press('Escape')
+  await page.getByRole('button', { name: 'Install Glow Trail' }).click()
+  await dismissInstall(page)
+  await page.reload()
+  await dialog.waitFor({ timeout: 6000 })
+  // A late positive result for this specific game must withdraw the automatic offer.
+  await page.evaluate(() => window.confirmGlowTrail())
+  await dialog.waitFor({ state: 'hidden', timeout: 6000 })
+  assert.equal(await page.getByRole('button', { name: 'Install Glow Trail' }).count(), 0)
+})
+
+test('unmarked mobile in-app browsers show the platform steps when installation cannot be confirmed', async t => {
+  for (const profile of [
+    { userAgent: androidWebView, listing: 'other', updates: 'denied', instructions: /Chrome.*Install app/i },
+    { userAgent: mobileSafari + ' [FBAN/FBIOS;FBAV/487.0]', listing: 'denied', instructions: /Safari.*Share.*Add to Home Screen/i },
+    { userAgent: androidWebView, listing: 'absent', instructions: /Chrome.*Install app/i },
+  ]) {
+    const { page, dialog } = await embeddedGame(t, profile)
+    await dialog.waitFor({ timeout: 6000 })
+    assert.match((await dialog.getByRole('listitem').allInnerTexts()).join(' '), profile.instructions)
+    await dismissInstall(page)
+    await clickCell(page, 33)
+    await count(page, 2)
+    assert.equal(await dialog.isVisible(), false)
+  }
+})
+
+test('Dashboard launches honor current installation evidence and genuine browser install offers', async t => {
+  const entry = url + '#from=games-dashboard'
+  const known = await embeddedGame(t, { userAgent: mobileSafari, listing: 'own', entry })
+  await known.page.getByRole('button', { name: 'Settings' }).click({ timeout: 6000 })
+  await known.page.getByText('Installed', { exact: true }).waitFor()
+  assert.equal(await known.dialog.isVisible(), false)
+  assert.equal(await known.page.getByRole('button', { name: 'Install Glow Trail' }).count(), 0)
+
+  const { page, dialog } = await embeddedGame(t, { userAgent: androidWebView, listing: 'absent', entry })
+  await dialog.waitFor({ timeout: 6000 })
+  await page.evaluate(() => {
+    window.nativeInstallRequests = 0
+    const offer = new Event('beforeinstallprompt', { cancelable: true })
+    Object.assign(offer, { prompt: async () => { window.nativeInstallRequests++ }, userChoice: Promise.resolve({ outcome: 'accepted' }) })
+    window.dispatchEvent(offer)
+  })
+  assert.equal(await page.evaluate(() => window.nativeInstallRequests), 0)
+  const native = dialog.getByRole('button', { name: 'Install app', exact: true })
+  await native.waitFor({ timeout: 6000 })
+  assert.match((await dialog.getByRole('listitem').allInnerTexts()).join(' '), /Chrome.*Install app/i)
+  assert.equal(await dialog.getByRole('textbox', { name: 'Game link' }).inputValue(), 'https://glowtrail.chrisawad.com/')
+  await native.click()
+  assert.equal(await page.evaluate(() => window.nativeInstallRequests), 1)
+})
+
 test('the install button uses browser consent, supports cancellation, and offers again after uninstall', async t => {
   const { page } = await game(t, { installed: false })
   await page.evaluate(() => {
