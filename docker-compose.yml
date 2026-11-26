@@ -1,0 +1,6 @@
+name: glow-trail
+services:
+  app:
+    build: .
+    ports:
+      - "4187:80"

@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.pnpm-store/
+.codex/
+.codex-attachments/
+*.tsbuildinfo
+*.tgz
+*.local
+.DS_Store

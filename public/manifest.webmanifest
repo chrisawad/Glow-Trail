@@ -1,0 +1,17 @@
+{
+  "id": "./",
+  "name": "Glow Trail",
+  "short_name": "Glow Trail",
+  "description": "Connect the numbered dots and fill every cell.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#201D3C",
+  "theme_color": "#201D3C",
+  "icons": [
+    {"src":"icons/icon-192.png","type":"image/png","sizes":"192x192","purpose":"any"},
+    {"src":"icons/icon-512.png","type":"image/png","sizes":"512x512","purpose":"any maskable"}
+  ],
+  "related_applications":[{"platform":"webapp","url":"manifest.webmanifest","id":"./"}],
+  "prefer_related_applications":false
+}
